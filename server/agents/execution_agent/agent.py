@@ -21,7 +21,7 @@ Purpose: {agent_purpose}
 Instructions:
 [TO BE FILLED IN BY USER]
 
-You have access to Gmail tools to help complete your tasks. When given instructions:
+When given instructions:
 1. Analyze what needs to be done
 2. Use the appropriate tools to complete the task
 3. Provide clear status updates on your actions
@@ -104,7 +104,7 @@ class ExecutionAgent:
             current_instruction: Current instruction from interaction agent
 
         Returns:
-            List of messages in OpenRouter format
+            List of messages for LLM consumption
         """
         return [
             {"role": "user", "content": current_instruction}

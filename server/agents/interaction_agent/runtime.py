@@ -8,7 +8,7 @@ from .agent import build_system_prompt, prepare_message_with_history
 from .tools import ToolResult, get_tool_schemas, handle_tool_call
 from ...config import get_settings
 from ...services.conversation import get_conversation_log, get_working_memory_log
-from ...openrouter_client import request_chat_completion
+from ...anthropic_client import request_chat_completion
 from ...logging_config import logger
 
 
@@ -49,7 +49,7 @@ class InteractionAgentRuntime:
     # Initialize interaction agent runtime with settings and service dependencies
     def __init__(self) -> None:
         settings = get_settings()
-        self.api_key = settings.openrouter_api_key
+        self.api_key = settings.anthropic_api_key
         self.model = settings.interaction_agent_model
         self.settings = settings
         self.conversation_log = get_conversation_log()
@@ -58,7 +58,7 @@ class InteractionAgentRuntime:
 
         if not self.api_key:
             raise ValueError(
-                "OpenRouter API key not configured. Set OPENROUTER_API_KEY environment variable."
+                "Anthropic API key not configured. Set ANTHROPIC_API_KEY environment variable."
             )
 
     # Main entry point for processing user messages through the LLM interaction loop
@@ -198,13 +198,13 @@ class InteractionAgentRuntime:
                 return rendered
         return self.conversation_log.load_transcript()
 
-    # Execute API call to OpenRouter with system prompt, messages, and tool schemas
+    # Execute API call to Anthropic with system prompt, messages, and tool schemas
     async def _make_llm_call(
         self,
         system_prompt: str,
         messages: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        """Make an LLM call via OpenRouter."""
+        """Make an LLM call via Anthropic."""
 
         logger.debug(
             "Interaction agent calling LLM",
@@ -218,7 +218,7 @@ class InteractionAgentRuntime:
             tools=self.tool_schemas,
         )
 
-    # Extract the assistant's message from the OpenRouter API response structure
+    # Extract the assistant's message from the Anthropic API response structure
     def _extract_assistant_message(self, response: Dict[str, Any]) -> Dict[str, Any]:
         """Return the assistant message from the raw response payload."""
 

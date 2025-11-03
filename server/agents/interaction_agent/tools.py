@@ -20,7 +20,7 @@ class ToolResult:
     user_message: Optional[str] = None
     recorded_reply: bool = False
 
-# Tool schemas for OpenRouter
+# Tool schemas for LLM function calling
 TOOL_SCHEMAS = [
     {
         "type": "function",
@@ -55,32 +55,6 @@ TOOL_SCHEMAS = [
                     },
                 },
                 "required": ["message"],
-                "additionalProperties": False,
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "send_draft",
-            "description": "Record an email draft so the user can review the exact text.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "to": {
-                        "type": "string",
-                        "description": "Recipient email for the draft.",
-                    },
-                    "subject": {
-                        "type": "string",
-                        "description": "Email subject for the draft.",
-                    },
-                    "body": {
-                        "type": "string",
-                        "description": "Email body content (plain text).",
-                    },
-                },
-                "required": ["to", "subject", "body"],
                 "additionalProperties": False,
             },
         },
@@ -164,31 +138,6 @@ def send_message_to_user(message: str) -> ToolResult:
     )
 
 
-# Format and record email draft for user review
-def send_draft(
-    to: str,
-    subject: str,
-    body: str,
-) -> ToolResult:
-    """Record a draft update in the conversation log for the interaction agent."""
-    log = get_conversation_log()
-
-    message = f"To: {to}\nSubject: {subject}\n\n{body}"
-
-    log.record_reply(message)
-    logger.info(f"Draft recorded for: {to}")
-
-    return ToolResult(
-        success=True,
-        payload={
-            "status": "draft_recorded",
-            "to": to,
-            "subject": subject,
-        },
-        recorded_reply=True,
-    )
-
-
 # Record silent wait state to avoid duplicate responses
 def wait(reason: str) -> ToolResult:
     """Wait silently and add a wait log entry that is not visible to the user."""
@@ -229,8 +178,6 @@ def handle_tool_call(name: str, arguments: Any) -> ToolResult:
             return send_message_to_agent(**args)
         if name == "send_message_to_user":
             return send_message_to_user(**args)
-        if name == "send_draft":
-            return send_draft(**args)
         if name == "wait":
             return wait(**args)
 

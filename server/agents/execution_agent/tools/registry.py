@@ -4,16 +4,15 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List
 
-from . import gmail, triggers
+from . import triggers
 from ..tasks import get_task_registry, get_task_schemas
 
 
-# Return OpenAI/OpenRouter-compatible tool schemas
+# Return standard tool schemas for LLM function calling
 def get_tool_schemas() -> List[Dict[str, Any]]:
-    """Return OpenAI/OpenRouter-compatible tool schemas."""
+    """Return standard tool schemas for LLM function calling."""
 
     return [
-        *gmail.get_schemas(),
         *get_task_schemas(),
         *triggers.get_schemas(),
     ]
@@ -24,7 +23,6 @@ def get_tool_registry(agent_name: str) -> Dict[str, Callable[..., Any]]:
     """Return Python callables for executing tools by name."""
 
     registry: Dict[str, Callable[..., Any]] = {}
-    registry.update(gmail.build_registry(agent_name))
     registry.update(get_task_registry(agent_name))
     registry.update(triggers.build_registry(agent_name))
     return registry

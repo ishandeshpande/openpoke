@@ -1,10 +1,9 @@
 # OpenPoke 🌴
 
-OpenPoke is a simplified, open-source take on [Interaction Company’s](https://interaction.co/about) [Poke](https://poke.com/) assistant—built to show how a multi-agent orchestration stack can feel genuinely useful. It keeps the handful of things Poke is great at (email triage, reminders, and persistent agents) while staying easy to spin up locally.
+OpenPoke is a simplified, open-source take on [Interaction Company's](https://interaction.co/about) [Poke](https://poke.com/) assistant—built to show how a multi-agent orchestration stack can feel genuinely useful. It keeps the handful of things Poke is great at (reminders and persistent agents) while staying easy to spin up locally.
 
-- Multi-agent FastAPI backend that mirrors Poke's interaction/execution split, powered by [OpenRouter](https://openrouter.ai/).
-- Gmail tooling via [Composio](https://composio.dev/) for drafting/replying/forwarding without leaving chat.
-- Trigger scheduler and background watchers for reminders and "important email" alerts.
+- Multi-agent FastAPI backend that mirrors Poke's interaction/execution split, powered by [Anthropic's Claude](https://www.anthropic.com/).
+- Trigger scheduler for reminders and task scheduling.
 - Next.js web UI that proxies everything through the shared `.env`, so plugging in API keys is the only setup.
 
 ## Requirements
@@ -22,18 +21,12 @@ OpenPoke is a simplified, open-source take on [Interaction Company’s](https://
    ```bash
    cp .env.example .env
    ```
-3. **Get your API keys and add them to `.env`:**
+3. **Get your API key and add it to `.env`:**
    
-   **OpenRouter (Required)**
-   - Create an account at [openrouter.ai](https://openrouter.ai/)
+   **Anthropic (Required)**
+   - Create an account at [console.anthropic.com](https://console.anthropic.com/)
    - Generate an API key
-   - Replace `your_openrouter_api_key_here` with your actual key in `.env`
-   
-   **Composio (Required for Gmail)**
-   - Sign in at [composio.dev](https://composio.dev/)
-   - Create an API key
-   - Set up Gmail integration and get your auth config ID
-   - Replace `your_composio_api_key_here` and `your_gmail_auth_config_id_here` in `.env`
+   - Replace `your_anthropic_api_key_here` with your actual key in `.env`
 4. **(Required) Create and activate a Python 3.10+ virtualenv:**
    ```bash
    # Ensure you're using Python 3.10+
@@ -69,7 +62,7 @@ OpenPoke is a simplified, open-source take on [Interaction Company’s](https://
    ```bash
    npm run dev --prefix web
    ```
-9. **Connect Gmail for email workflows.** With both services running, open [http://localhost:3000](http://localhost:3000), head to *Settings → Gmail*, and complete the Composio OAuth flow. This step is required for email drafting, replies, and the important-email monitor.
+9. **Open the app.** With both services running, open [http://localhost:3000](http://localhost:3000) and start chatting!
 
 The web app proxies API calls to the Python server using the values in `.env`, so keeping both processes running is required for end-to-end flows.
 

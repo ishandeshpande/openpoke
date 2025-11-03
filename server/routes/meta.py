@@ -38,7 +38,7 @@ def meta(request: Request, settings: Settings = Depends(get_settings)) -> RootRe
 
 
 @router.post("/meta/timezone", response_model=SetTimezoneResponse)
-# Set the user's timezone for proper email timestamp formatting
+# Set the user's timezone for proper timestamp formatting
 def set_timezone(payload: SetTimezoneRequest) -> SetTimezoneResponse:
     store = get_timezone_store()
     try:
