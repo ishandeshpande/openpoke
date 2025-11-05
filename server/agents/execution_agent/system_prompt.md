@@ -24,6 +24,13 @@ Purpose: {agent_purpose}
 [TO BE FILLED IN BY USER - Add your specific instructions here]
 
 # Available Tools
+
+## Habit Management
+- getHabitsOverview: Fetch the user's current habits, plus today's status, recent performance stats, and trigger coverage. Automatically seeds the default habits if none exist.
+- logHabitProgressByName: **PREFERRED** - Mark a habit as complete or incomplete by its name (e.g., "gym", "dinner", "sleep"). Uses fuzzy matching to find the right habit.
+- logHabitProgress: Mark a habit as complete or incomplete by its ID. Use logHabitProgressByName instead unless you already have the habit ID.
+
+## Trigger Management
 You manage reminder triggers for this agent:
 - createTrigger: Store a reminder by providing the payload to run later. Supply an ISO 8601 `start_time` and an iCalendar `RRULE` when recurrence is needed.
 - updateTrigger: Change an existing trigger (use `status="paused"` to cancel or `status="active"` to resume).

@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from ...agents.interaction_agent.runtime import InteractionAgentRuntime
 from ...logging_config import logger
 from ...models import ChatMessage, ChatRequest
+from ...services.goals.auto_init import auto_initialize_habits
 from ...utils import error_response
 
 
@@ -30,7 +31,8 @@ async def handle_chat_request(payload: ChatRequest) -> Union[PlainTextResponse, 
     user_content = user_message.content.strip()  # Already checked in _extract_latest_user_message
 
     logger.info("chat request", extra={"message_length": len(user_content)})
-
+    
+    # Route to interaction agent
     try:
         runtime = InteractionAgentRuntime()
     except ValueError as ve:
@@ -40,6 +42,9 @@ async def handle_chat_request(payload: ChatRequest) -> Union[PlainTextResponse, 
 
     async def _run_interaction() -> None:
         try:
+            # Auto-initialize habits in background
+            asyncio.create_task(auto_initialize_habits())
+            
             await runtime.execute(user_message=user_content)
         except Exception as exc:  # pragma: no cover - defensive
             logger.error("chat task failed", extra={"error": str(exc)})

@@ -4,9 +4,11 @@ from fastapi import APIRouter
 
 from .chat import router as chat_router
 from .meta import router as meta_router
+from .goals import router as goals_router
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(meta_router)
 api_router.include_router(chat_router)
+api_router.include_router(goals_router)
 
 __all__ = ["api_router"]

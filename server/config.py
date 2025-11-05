@@ -31,6 +31,9 @@ _load_env_file()
 DEFAULT_APP_NAME = "OpenPoke Server"
 DEFAULT_APP_VERSION = "0.3.0"
 
+# Data directory path
+DATA_DIR = Path(__file__).resolve().parent / "data"
+
 
 def _env_int(name: str, fallback: int) -> int:
     try:

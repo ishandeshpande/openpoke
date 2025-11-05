@@ -68,6 +68,14 @@ app.include_router(api_router)
 @app.on_event("startup")
 # Initialize background services (trigger scheduler) when the app starts
 async def _start_trigger_scheduler() -> None:
+    # Initialize goals database early to ensure schema is ready
+    from .services.goals import get_goals_database
+    try:
+        db = get_goals_database()
+        logger.info("Goals database initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize goals database: {e}")
+    
     scheduler = get_trigger_scheduler()
     await scheduler.start()
 

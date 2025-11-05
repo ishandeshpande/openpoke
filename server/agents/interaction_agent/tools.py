@@ -8,7 +8,9 @@ from typing import Any, Optional
 from ...logging_config import logger
 from ...services.conversation import get_conversation_log
 from ...services.execution import get_agent_roster, get_execution_agent_logs
+from ...services.goals import get_habit_manager, get_progress_tracker, get_consistency_scorer
 from ..execution_agent.batch_manager import ExecutionBatchManager
+from datetime import date
 
 
 @dataclass
@@ -73,6 +75,62 @@ TOOL_SCHEMAS = [
                     },
                 },
                 "required": ["reason"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "log_habit_progress",
+            "description": "Mark a habit as complete or incomplete. Use this when the user mentions completing habits (e.g., 'I went to the gym', 'I cooked dinner', 'didn't sleep well'). Accepts habit names with fuzzy matching.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "habit_name": {
+                        "type": "string",
+                        "description": "Name or keyword for the habit (e.g., 'gym', 'dinner', 'sleep')",
+                    },
+                    "completed": {
+                        "type": "boolean",
+                        "description": "Whether the habit was completed (true) or not (false)",
+                    },
+                    "excuse_text": {
+                        "type": "string",
+                        "description": "Optional text explaining why the habit wasn't completed",
+                    },
+                    "excuse_category": {
+                        "type": "string",
+                        "description": "Category of excuse if applicable: sick, exam, travel, or other",
+                    },
+                },
+                "required": ["habit_name", "completed"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_todays_habits",
+            "description": "Get the user's habits for today with their completion status. Use this to see what habits they're tracking and which ones are done.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_consistency_score",
+            "description": "Get the user's consistency score (0-100) with detailed breakdown. Use when user asks about their consistency score, performance, or how they're doing overall.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
                 "additionalProperties": False,
             },
         },
@@ -157,6 +215,153 @@ def wait(reason: str) -> ToolResult:
     )
 
 
+# Log habit progress directly
+def log_habit_progress(
+    habit_name: str,
+    completed: bool,
+    excuse_text: Optional[str] = None,
+    excuse_category: Optional[str] = None,
+) -> ToolResult:
+    """Mark a habit as complete or incomplete by name."""
+    try:
+        habit_manager = get_habit_manager()
+        habits = habit_manager.list_habits("default_user", active_only=True)
+        
+        if not habits:
+            return ToolResult(
+                success=False,
+                payload={"error": "No active habits found. User needs to set up habits first."},
+            )
+        
+        # Find matching habit (case-insensitive partial match)
+        habit_name_lower = habit_name.lower()
+        matched_habit = None
+        
+        for habit in habits:
+            if habit_name_lower in habit.name.lower() or habit.name.lower() in habit_name_lower:
+                matched_habit = habit
+                break
+        
+        if not matched_habit:
+            # Return list of available habits
+            habit_names = [h.name for h in habits]
+            return ToolResult(
+                success=False,
+                payload={
+                    "error": f"No habit found matching '{habit_name}'. Available habits: {', '.join(habit_names)}",
+                    "available_habits": habit_names,
+                },
+            )
+        
+        # Log the progress
+        tracker = get_progress_tracker()
+        scorer = get_consistency_scorer()
+        
+        entry = tracker.log_progress(
+            habit_id=matched_habit.id,
+            completed=completed,
+            excuse_given=excuse_text,
+            excuse_category=excuse_category,
+        )
+        
+        # Update consistency score
+        try:
+            scorer.calculate_and_update_score(reason="habit_checkin")
+        except Exception as score_err:
+            logger.warning(f"Failed to update consistency score: {score_err}")
+        
+        return ToolResult(
+            success=True,
+            payload={
+                "entry_id": entry.id,
+                "habit_name": matched_habit.name,
+                "completed": completed,
+                "message": f"Marked '{matched_habit.name}' as {'complete' if completed else 'incomplete'}",
+            },
+        )
+        
+    except Exception as e:
+        logger.error(f"Error logging habit progress: {e}", exc_info=True)
+        return ToolResult(
+            success=False,
+            payload={"error": str(e)},
+        )
+
+
+# Get today's habits with their status
+def get_todays_habits() -> ToolResult:
+    """Get the user's habits for today with completion status."""
+    try:
+        habit_manager = get_habit_manager()
+        tracker = get_progress_tracker()
+        
+        habits = habit_manager.list_habits("default_user", active_only=True)
+        today = date.today()
+        
+        if not habits:
+            return ToolResult(
+                success=True,
+                payload={
+                    "habits": [],
+                    "message": "No habits configured yet.",
+                },
+            )
+        
+        result = []
+        for habit in habits:
+            today_progress = tracker.get_progress_for_date(habit.id, today)
+            stats = tracker.get_habit_stats(habit.id, days=7)
+            
+            result.append({
+                "habit_id": habit.id,
+                "name": habit.name,
+                "description": habit.description,
+                "current_frequency": habit.current_frequency,
+                "target_frequency": habit.target_frequency,
+                "check_in_time": habit.check_in_time,
+                "checked_in_today": today_progress is not None,
+                "completed_today": today_progress.completed if today_progress else None,
+                "recent_completion_rate": stats.completion_rate if stats else 0,
+                "current_streak": stats.current_streak if stats else 0,
+            })
+        
+        return ToolResult(
+            success=True,
+            payload={
+                "habits": result,
+                "date": today.isoformat(),
+                "habits_count": len(result),
+            },
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting today's habits: {e}", exc_info=True)
+        return ToolResult(
+            success=False,
+            payload={"error": str(e)},
+        )
+
+
+# Get consistency score with breakdown
+def get_consistency_score() -> ToolResult:
+    """Get user's consistency score with detailed breakdown."""
+    try:
+        scorer = get_consistency_scorer()
+        breakdown = scorer.get_score_breakdown("default_user")
+        
+        return ToolResult(
+            success=True,
+            payload=breakdown,
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting consistency score: {e}", exc_info=True)
+        return ToolResult(
+            success=False,
+            payload={"error": str(e)},
+        )
+
+
 # Return predefined tool schemas for LLM function calling
 def get_tool_schemas():
     """Return OpenAI-compatible tool schemas."""
@@ -180,6 +385,12 @@ def handle_tool_call(name: str, arguments: Any) -> ToolResult:
             return send_message_to_user(**args)
         if name == "wait":
             return wait(**args)
+        if name == "log_habit_progress":
+            return log_habit_progress(**args)
+        if name == "get_todays_habits":
+            return get_todays_habits(**args)
+        if name == "get_consistency_score":
+            return get_consistency_score(**args)
 
         logger.warning("unexpected tool", extra={"tool": name})
         return ToolResult(success=False, payload={"error": f"Unknown tool: {name}"})
