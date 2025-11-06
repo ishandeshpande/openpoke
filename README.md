@@ -130,6 +130,83 @@ npm run dev --prefix web
 
 Navigate to **[http://localhost:3000](http://localhost:3000)** in your browser and start chatting!
 
+## 📱 iMessage Integration (macOS Only)
+
+OpenPoke can be used as an iMessage bot, allowing you to interact with your habit tracking system through text messages!
+
+### Prerequisites
+
+- **macOS only** (requires access to local iMessage database)
+- **Node.js 18+**
+- **Full Disk Access** permission for Terminal/IDE
+
+### Setup Instructions
+
+1. **Grant Full Disk Access**
+   - Open **System Settings** → **Privacy & Security** → **Full Disk Access**
+   - Click **"+"** and add your Terminal or IDE (Cursor, VS Code, etc.)
+   - Restart your terminal/IDE after granting permission
+
+2. **Configure iMessage Service**
+   ```bash
+   # Create .env file
+   cat > imessage-service/.env << EOF
+   BACKEND_URL=http://localhost:8001
+   POLL_INTERVAL=2000
+   DEBUG=true
+   # IMPORTANT: Add your phone number to whitelist!
+   # Leave empty to respond to ALL messages (not recommended)
+   ALLOWED_NUMBERS=+11234567890
+   EOF
+   
+   # Edit the file to add your actual phone number
+   nano imessage-service/.env
+   ```
+   
+   **⚠️ IMPORTANT:** Set `ALLOWED_NUMBERS` to your phone number(s) or the bot will respond to EVERYONE who texts you!
+
+3. **Install Dependencies**
+   ```bash
+   cd imessage-service
+   npm install
+   npm run build
+   cd ..
+   ```
+
+4. **Start Both Services**
+   ```bash
+   # Activate virtual environment first
+   source .venv/bin/activate
+   
+   # Start both services
+   ./start-imessage.sh
+   ```
+
+   This starts both the Python backend and iMessage service together.
+
+### Using the iMessage Bot
+
+Once running:
+1. Send a text message to your phone number from another device
+2. The bot will automatically process your message
+3. You'll receive a response via iMessage
+
+All your conversations and habits are synced between the web interface and iMessage!
+
+### Features
+- ✅ Natural language habit tracking via text
+- ✅ Receive habit reminders as iMessages
+- ✅ Unified conversation history across web and iMessage
+- ✅ All goal tracking features available via text
+
+### Current Limitations (Phase 1)
+- Single-user only (no phone verification)
+- No group chat support
+- Runs locally on your Mac
+- Polling-based (checks for messages every 2 seconds)
+
+For detailed configuration and troubleshooting, see [`imessage-service/README.md`](imessage-service/README.md).
+
 ## 📖 How to Use
 
 ### Basic Chat Interaction

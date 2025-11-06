@@ -30,6 +30,8 @@ class ChatRequest(BaseModel):
     model: Optional[str] = None
     system: Optional[str] = None
     stream: bool = True
+    sync_mode: bool = False  # For iMessage: wait for response instead of background processing
+    source: str = "web"  # Track message origin: "web" or "imessage"
 
     def as_message_list(self) -> List[Dict[str, str]]:
         return [msg.as_dict() for msg in self.messages if msg.content.strip()]
@@ -41,3 +43,9 @@ class ChatHistoryResponse(BaseModel):
 
 class ChatHistoryClearResponse(BaseModel):
     ok: bool = True
+
+
+class ChatSyncResponse(BaseModel):
+    ok: bool = True
+    response: str = ""
+    error: Optional[str] = None

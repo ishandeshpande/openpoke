@@ -71,6 +71,9 @@ class Settings(BaseModel):
     conversation_summary_threshold: int = Field(default=100)
     conversation_summary_tail_size: int = Field(default=10)
 
+    # iMessage integration
+    imessage_enabled: bool = Field(default=os.getenv("IMESSAGE_ENABLED", "0") == "1")
+
     @property
     def cors_allow_origins(self) -> List[str]:
         """Parse CORS origins from comma-separated string."""

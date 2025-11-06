@@ -30,7 +30,11 @@ async def handle_chat_request(payload: ChatRequest) -> Union[PlainTextResponse, 
 
     user_content = user_message.content.strip()  # Already checked in _extract_latest_user_message
 
-    logger.info("chat request", extra={"message_length": len(user_content)})
+    logger.info("chat request", extra={
+        "message_length": len(user_content),
+        "source": payload.source,
+        "sync_mode": payload.sync_mode
+    })
     
     # Route to interaction agent
     try:
@@ -40,6 +44,33 @@ async def handle_chat_request(payload: ChatRequest) -> Union[PlainTextResponse, 
         logger.error("configuration error", extra={"error": str(ve)})
         return error_response(str(ve), status_code=status.HTTP_400_BAD_REQUEST)
 
+    # For iMessage (sync_mode=True), wait for response and return it
+    if payload.sync_mode:
+        try:
+            # Auto-initialize habits in background (don't await)
+            asyncio.create_task(auto_initialize_habits())
+            
+            # Execute and wait for response
+            result = await runtime.execute(user_message=user_content)
+            
+            if result.success:
+                return JSONResponse({
+                    "ok": True,
+                    "response": result.response
+                }, status_code=status.HTTP_200_OK)
+            else:
+                return JSONResponse({
+                    "ok": False,
+                    "error": result.error or "Unknown error"
+                }, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as exc:
+            logger.error("chat task failed (sync)", extra={"error": str(exc)})
+            return JSONResponse({
+                "ok": False,
+                "error": str(exc)
+            }, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    # For web (sync_mode=False), use existing async behavior
     async def _run_interaction() -> None:
         try:
             # Auto-initialize habits in background
