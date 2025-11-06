@@ -13,7 +13,7 @@ export interface BackendResponse {
  */
 export async function handleIncomingMessage(message: Message): Promise<string | null> {
   try {
-    // Trust SDK's text extraction
+    // Use the message text (now potentially refreshed via retry mechanism)
     const messageText = message.text;
 
     // Don't respond to group chats in Phase 1
@@ -114,10 +114,13 @@ async function callBackend(messageText: string): Promise<string> {
     });
 
     if (response.data.ok && response.data.response) {
+      console.log(`[MessageHandler] Backend returned response: "${response.data.response}"`);
       return response.data.response;
     } else if (response.data.error) {
+      console.log(`[MessageHandler] Backend returned error: ${response.data.error}`);
       throw new Error(`Backend error: ${response.data.error}`);
     } else {
+      console.log(`[MessageHandler] Invalid backend response format:`, response.data);
       throw new Error('Invalid backend response format');
     }
   } catch (error) {

@@ -11,6 +11,7 @@ let sdk: IMessageSDK | null = null;
 const processedIds = new Set<string>();
 const execAsync = promisify(exec);
 
+
 /**
  * Check if Messages app is running
  */
@@ -117,7 +118,10 @@ async function main() {
       try {
         log(`\n📨 New message from ${msg.sender}`);
 
-        // Use fluent API for message processing
+        // Small delay to allow database sync (iMessage timing issue)
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Handle text messages (like imessage-kit examples)
         if (msg.text?.trim()) {
           log(`✅ Message text: "${msg.text}"`);
           const response = await handleIncomingMessage(msg);
@@ -129,7 +133,13 @@ async function main() {
             log(`ℹ️  No response needed (filtered message)`);
           }
         } else {
-          log(`ℹ️  Message has no text content (may be attachment-only)`);
+          // Check if it's an attachment-only message
+          const hasAttachments = msg.attachments && msg.attachments.length > 0;
+          if (hasAttachments) {
+            log(`ℹ️  Message has ${msg.attachments.length} attachment(s) but no text`);
+          } else {
+            log(`ℹ️  Message has no text content (empty message)`);
+          }
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
