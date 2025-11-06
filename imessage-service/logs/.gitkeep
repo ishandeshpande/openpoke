@@ -1,0 +1,10 @@
+# Logs Directory
+
+Daily log files are stored here in format: `imessage-service-YYYY-MM-DD.log`
+
+Logs include:
+- Message receipts
+- Text extraction method (SDK vs attributedBody)
+- Backend responses
+- Errors and warnings
+

@@ -1,7 +1,6 @@
 import axios from 'axios';
 import { config } from './config';
 import type { Message } from '@photon-ai/imessage-kit';
-import Database from 'better-sqlite3';
 
 export interface BackendResponse {
   ok: boolean;
@@ -10,103 +9,12 @@ export interface BackendResponse {
 }
 
 /**
- * Extract text content from iMessage attributedBody field
- * NSAttributedString format: ...NSString...+[LENGTH_BYTE][TEXT_CONTENT]...
- */
-function extractTextFromAttributedBody(attributedBody: Buffer): string | null {
-  if (!attributedBody || attributedBody.length === 0) {
-    return null;
-  }
-
-  try {
-    // Find the '+' character which marks the start of the text section
-    const plusIndex = attributedBody.indexOf('+');
-    if (plusIndex === -1 || plusIndex >= attributedBody.length - 2) {
-      return null;
-    }
-
-    // The byte immediately after '+' is the length of the text
-    const textLength = attributedBody[plusIndex + 1];
-    if (textLength === 0 || plusIndex + 1 + textLength >= attributedBody.length) {
-      return null;
-    }
-
-    // Extract exactly that many bytes as UTF-8 text
-    const textBytes = attributedBody.slice(plusIndex + 2, plusIndex + 2 + textLength);
-    const text = textBytes.toString('utf8');
-
-    // Basic validation: should have at least one letter and be reasonable length
-    if (text.length > 0 && text.length <= 1000 && /[a-zA-Z0-9]/.test(text)) {
-      return text.trim();
-    }
-
-    return null;
-  } catch (error) {
-    console.error('[MessageHandler] Error extracting text from attributedBody:', error);
-    return null;
-  }
-}
-
-/**
- * Get the most current text for a message from the database
- * Always queries the database since SDK may have stale/cached data
- */
-async function getMessageTextFromDB(messageId: string): Promise<string | null> {
-  try {
-    const db = new Database('/Users/ishan/Library/Messages/chat.db', { readonly: true });
-
-    const result = db.prepare(`
-      SELECT text, attributedBody
-      FROM message
-      WHERE ROWID = ?
-    `).get(messageId) as { text?: string; attributedBody?: Buffer } | undefined;
-
-    db.close();
-
-    if (result) {
-      // Try text field first (sometimes populated)
-      if (result.text && result.text.trim().length > 0) {
-        return result.text.trim();
-      }
-
-      // Try attributedBody parsing (always contains the data)
-      if (result.attributedBody) {
-        const extractedText = extractTextFromAttributedBody(result.attributedBody);
-        if (extractedText) {
-          return extractedText;
-        }
-      }
-    }
-  } catch (error) {
-    console.error('[MessageHandler] Error querying database for text:', error);
-  }
-
-  return null;
-}
-
-/**
  * Process an incoming iMessage and get a response from the backend
  */
 export async function handleIncomingMessage(message: Message): Promise<string | null> {
   try {
-    // Always get the most current text from database (SDK may have stale data)
-    const messageText = await getMessageTextFromDB(message.id);
-
-    if (config.debug) {
-      console.log(`[MessageHandler] Processing message from ${message.sender}`);
-      console.log(`[MessageHandler] Message details:`, {
-        sdkText: message.text,
-        dbText: messageText,
-        hasAttachments: message.attachments?.length > 0,
-        attachmentCount: message.attachments?.length || 0,
-        service: message.service,
-        chatId: message.chatId,
-        messageId: message.id,
-      });
-    }
-
-    // Use text from database if available, otherwise use SDK text
-    const finalText = messageText || message.text;
+    // Trust SDK's text extraction
+    const messageText = message.text;
 
     // Don't respond to group chats in Phase 1
     if (message.isGroupChat) {
@@ -117,7 +25,7 @@ export async function handleIncomingMessage(message: Message): Promise<string | 
     }
 
     // Handle messages with no text
-    if (!finalText || finalText.trim().length === 0) {
+    if (!messageText || messageText.trim().length === 0) {
       // Check if it's an attachment-only message
       const hasAttachments = message.attachments && message.attachments.length > 0;
       if (hasAttachments) {
@@ -155,7 +63,7 @@ export async function handleIncomingMessage(message: Message): Promise<string | 
     }
 
     // Call the backend API
-    const response = await callBackend(finalText);
+    const response = await callBackend(messageText);
 
     if (config.debug) {
       console.log(`[MessageHandler] Backend response: ${response}`);
@@ -164,6 +72,12 @@ export async function handleIncomingMessage(message: Message): Promise<string | 
     return response;
   } catch (error) {
     console.error('[MessageHandler] Error processing message:', error);
+    
+    // Check if it's a rate limit error
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('rate_limit') || errorMessage.includes('429')) {
+      return "I'm getting a lot of messages right now! Give me a moment and try again in a few seconds. 😊";
+    }
     
     // Return a friendly error message to the user
     return "Sorry, I encountered an error processing your message. Please try again.";

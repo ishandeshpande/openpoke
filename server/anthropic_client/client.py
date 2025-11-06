@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -12,6 +14,51 @@ AnthropicBaseURL = "https://api.anthropic.com/v1"
 
 class AnthropicError(RuntimeError):
     """Raised when the Anthropic API returns an error response."""
+
+
+class RateLimiter:
+    """Simple token bucket rate limiter for Anthropic API calls."""
+    
+    def __init__(self, tokens_per_minute: int = 25000):
+        self.tokens_per_minute = tokens_per_minute
+        self.tokens_available = tokens_per_minute
+        self.last_refill = time.time()
+        self._lock = asyncio.Lock()
+    
+    async def wait_for_tokens(self, estimated_tokens: int) -> None:
+        """Wait until we have enough tokens available."""
+        async with self._lock:
+            # Refill tokens based on time passed
+            now = time.time()
+            time_passed = now - self.last_refill
+            tokens_to_add = (time_passed / 60) * self.tokens_per_minute
+            self.tokens_available = min(
+                self.tokens_per_minute,
+                self.tokens_available + tokens_to_add
+            )
+            self.last_refill = now
+            
+            # Wait if we don't have enough tokens
+            while self.tokens_available < estimated_tokens:
+                wait_time = ((estimated_tokens - self.tokens_available) / self.tokens_per_minute) * 60
+                await asyncio.sleep(min(wait_time, 1))  # Sleep max 1 second at a time
+                
+                # Refill again
+                now = time.time()
+                time_passed = now - self.last_refill
+                tokens_to_add = (time_passed / 60) * self.tokens_per_minute
+                self.tokens_available = min(
+                    self.tokens_per_minute,
+                    self.tokens_available + tokens_to_add
+                )
+                self.last_refill = now
+            
+            # Consume tokens
+            self.tokens_available -= estimated_tokens
+
+
+# Global rate limiter instance
+_rate_limiter = RateLimiter(tokens_per_minute=25000)  # Conservative limit
 
 
 def _headers(*, api_key: Optional[str] = None) -> Dict[str, str]:
@@ -85,35 +132,68 @@ async def request_chat_completion(
     logger = logging.getLogger("openpoke.server")
     logger.info(f"Anthropic API call - model: {model}, messages: {len(anthropic_messages)}, tools: {len(anthropic_tools) if anthropic_tools else 0}")
     
+    # Estimate tokens (rough approximation: ~4 chars per token)
+    estimated_tokens = sum(len(json.dumps(m)) for m in anthropic_messages) // 4
+    if system:
+        estimated_tokens += len(system) // 4
+    estimated_tokens = max(estimated_tokens, 1000)  # Minimum estimate
+    
+    # Wait for rate limit
+    logger.info(f"Waiting for rate limit (estimated tokens: {estimated_tokens})...")
+    await _rate_limiter.wait_for_tokens(estimated_tokens)
+    
+    # Retry with exponential backoff for rate limit errors
+    max_retries = 3
+    base_delay = 2  # seconds
+    
     async with httpx.AsyncClient() as client:
-        try:
-            logger.debug(f"Payload: {json.dumps(payload, indent=2)}")
-            response = await client.post(
-                url,
-                headers=_headers(api_key=api_key),
-                json=payload,
-                timeout=120.0,
-            )
-            logger.info(f"Anthropic response status: {response.status_code}")
+        for attempt in range(max_retries):
             try:
-                response.raise_for_status()
+                if attempt > 0:
+                    delay = base_delay * (2 ** attempt)  # Exponential backoff
+                    logger.warning(f"Retrying Anthropic API call (attempt {attempt + 1}/{max_retries}) after {delay}s...")
+                    await asyncio.sleep(delay)
+                
+                logger.debug(f"Payload: {json.dumps(payload, indent=2)}")
+                response = await client.post(
+                    url,
+                    headers=_headers(api_key=api_key),
+                    json=payload,
+                    timeout=120.0,
+                )
+                logger.info(f"Anthropic response status: {response.status_code}")
+                
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as exc:
+                    # If it's a rate limit error and we have retries left, continue
+                    if exc.response.status_code == 429 and attempt < max_retries - 1:
+                        logger.warning(f"Rate limit hit (429), will retry...")
+                        continue
+                    
+                    logger.error(f"Anthropic API error: {response.status_code} - {response.text}")
+                    _handle_response_error(exc)
+                
+                # Convert Anthropic response to OpenAI-compatible format
+                anthropic_response = response.json()
+                return _convert_anthropic_to_openai_format(anthropic_response)
+                
             except httpx.HTTPStatusError as exc:
-                logger.error(f"Anthropic API error: {response.status_code} - {response.text}")
+                # If it's a rate limit error and we have retries left, continue
+                if exc.response.status_code == 429 and attempt < max_retries - 1:
+                    continue
                 _handle_response_error(exc)
-            
-            # Convert Anthropic response to OpenAI-compatible format
-            anthropic_response = response.json()
-            return _convert_anthropic_to_openai_format(anthropic_response)
-        except httpx.HTTPStatusError as exc:  # pragma: no cover - handled above
-            _handle_response_error(exc)
-        except httpx.HTTPError as exc:
-            logger.error(f"Anthropic HTTP error: {exc}")
-            raise AnthropicError(f"Anthropic request failed: {exc}") from exc
-        except Exception as exc:
-            logger.error(f"Unexpected error in Anthropic call: {exc}", exc_info=True)
-            raise AnthropicError(f"Anthropic request failed: {exc}") from exc
+            except httpx.HTTPError as exc:
+                if attempt < max_retries - 1:
+                    logger.warning(f"HTTP error, will retry: {exc}")
+                    continue
+                logger.error(f"Anthropic HTTP error: {exc}")
+                raise AnthropicError(f"Anthropic request failed: {exc}") from exc
+            except Exception as exc:
+                logger.error(f"Unexpected error in Anthropic call: {exc}", exc_info=True)
+                raise AnthropicError(f"Anthropic request failed: {exc}") from exc
 
-    raise AnthropicError("Anthropic request failed: unknown error")
+    raise AnthropicError("Anthropic request failed after all retries")
 
 
 def _convert_messages_to_anthropic(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

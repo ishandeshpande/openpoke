@@ -1,0 +1,16 @@
+{
+  "name": "openpoke-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "imessage-kit",
+    "imessage-service"
+  ],
+  "description": "OpenPoke monorepo with iMessage SDK and service",
+  "scripts": {
+    "build:sdk": "cd imessage-kit && npm run build",
+    "build:service": "cd imessage-service && npm run build",
+    "build": "npm run build:sdk && npm run build:service"
+  }
+}
+
