@@ -12,6 +12,8 @@ from .execution import AgentRoster, ExecutionAgentLogStore, get_agent_roster, ge
 from .trigger_scheduler import get_trigger_scheduler
 from .triggers import get_trigger_service
 from .timezone_store import TimezoneStore, get_timezone_store
+from .outgoing_messages import OutgoingMessage, OutgoingMessageQueue, get_outgoing_message_queue
+from .user_phone import UserPhoneStore, get_user_phone_store
 
 
 __all__ = [
@@ -29,4 +31,9 @@ __all__ = [
     "get_trigger_service",
     "TimezoneStore",
     "get_timezone_store",
+    "OutgoingMessage",
+    "OutgoingMessageQueue",
+    "get_outgoing_message_queue",
+    "UserPhoneStore",
+    "get_user_phone_store",
 ]

@@ -184,9 +184,26 @@ def send_message_to_agent(agent_name: str, instructions: str) -> ToolResult:
 
 # Send immediate message to user and record in conversation history
 def send_message_to_user(message: str) -> ToolResult:
-    """Record a user-visible reply in the conversation log."""
+    """Record a user-visible reply in the conversation log and queue for iMessage delivery."""
+    from ...services import get_conversation_log, get_outgoing_message_queue, get_user_phone_store
+
     log = get_conversation_log()
     log.record_reply(message)
+
+    # Queue message for iMessage delivery if phone number is available
+    phone_store = get_user_phone_store()
+    recipient = phone_store.get_phone()
+
+    if recipient:
+        try:
+            queue = get_outgoing_message_queue()
+            message_id = queue.enqueue(recipient, message)
+            logger.info(f"Queued message for iMessage delivery: {message_id}")
+        except Exception as e:
+            logger.error(f"Failed to queue message for iMessage: {e}")
+            # Don't fail the whole operation if queueing fails
+    else:
+        logger.debug("No user phone number stored, skipping iMessage queue")
 
     return ToolResult(
         success=True,

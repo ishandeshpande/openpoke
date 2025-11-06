@@ -63,7 +63,7 @@ export async function handleIncomingMessage(message: Message): Promise<string | 
     }
 
     // Call the backend API
-    const response = await callBackend(messageText);
+    const response = await callBackend(messageText, message.sender);
 
     if (config.debug) {
       console.log(`[MessageHandler] Backend response: ${response}`);
@@ -87,10 +87,12 @@ export async function handleIncomingMessage(message: Message): Promise<string | 
 /**
  * Call the FastAPI backend with sync_mode enabled
  */
-async function callBackend(messageText: string): Promise<string> {
+async function callBackend(messageText: string, senderPhone: string): Promise<string> {
+  const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
   try {
     const url = `${config.backendUrl}/api/v1/chat/send`;
-    
+
     const payload = {
       messages: [
         {
@@ -100,10 +102,12 @@ async function callBackend(messageText: string): Promise<string> {
       ],
       sync_mode: true,
       source: 'imessage',
+      sender_phone: senderPhone,
+      request_id: requestId, // Add unique ID for tracking
     };
 
     if (config.debug) {
-      console.log(`[MessageHandler] Calling backend at ${url}`);
+      console.log(`[MessageHandler] [${requestId}] Calling backend at ${url} for "${messageText.substring(0, 50)}${messageText.length > 50 ? '...' : ''}"`);
     }
 
     const response = await axios.post<BackendResponse>(url, payload, {
@@ -114,25 +118,29 @@ async function callBackend(messageText: string): Promise<string> {
     });
 
     if (response.data.ok && response.data.response) {
-      console.log(`[MessageHandler] Backend returned response: "${response.data.response}"`);
+      console.log(`[MessageHandler] [${requestId}] Backend returned response: "${response.data.response}"`);
       return response.data.response;
     } else if (response.data.error) {
-      console.log(`[MessageHandler] Backend returned error: ${response.data.error}`);
+      console.log(`[MessageHandler] [${requestId}] Backend returned error: ${response.data.error}`);
       throw new Error(`Backend error: ${response.data.error}`);
     } else {
-      console.log(`[MessageHandler] Invalid backend response format:`, response.data);
+      console.log(`[MessageHandler] [${requestId}] Invalid backend response format:`, response.data);
       throw new Error('Invalid backend response format');
     }
   } catch (error) {
     if (axios.isAxiosError(error)) {
       if (error.code === 'ECONNREFUSED') {
+        console.log(`[MessageHandler] [${requestId}] Cannot connect to backend server`);
         throw new Error('Cannot connect to backend server. Is it running?');
       } else if (error.response) {
+        console.log(`[MessageHandler] [${requestId}] Backend returned ${error.response.status}: ${JSON.stringify(error.response.data)}`);
         throw new Error(`Backend returned ${error.response.status}: ${JSON.stringify(error.response.data)}`);
       } else if (error.request) {
+        console.log(`[MessageHandler] [${requestId}] No response from backend server`);
         throw new Error('No response from backend server');
       }
     }
+    console.log(`[MessageHandler] [${requestId}] Unexpected error:`, error);
     throw error;
   }
 }
