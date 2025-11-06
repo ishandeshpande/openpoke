@@ -11,8 +11,7 @@ export interface BackendResponse {
 
 /**
  * Extract text content from iMessage attributedBody field
- * iMessage stores message text in attributedBody as NSAttributedString archive
- * Format: NSKeyedArchiver with NSString objects containing length-prefixed UTF-8 text
+ * NSAttributedString format: ...NSString...+[LENGTH_BYTE][TEXT_CONTENT]...
  */
 function extractTextFromAttributedBody(attributedBody: Buffer): string | null {
   if (!attributedBody || attributedBody.length === 0) {
@@ -20,96 +19,25 @@ function extractTextFromAttributedBody(attributedBody: Buffer): string | null {
   }
 
   try {
-    const candidates: { text: string; score: number }[] = [];
-
-    const isMetadata = (text: string): boolean => {
-      const lowerText = text.toLowerCase();
-      // Check for known iMessage metadata patterns
-      return lowerText.includes('__kim') || // iMessage internal attributes
-             lowerText.includes('__k') ||    // Other iMessage attributes
-             lowerText.startsWith('ns') ||   // NSFoundation classes
-             lowerText === 'streamtyped' ||  // Archive header
-             lowerText.includes('attributename') || // Attribute names
-             text.includes('_'); // Any string with underscores is likely metadata
-    };
-
-    // Look for NSString markers followed by length-prefixed text
-    let searchPos = 0;
-    while (searchPos < attributedBody.length - 20) {
-      const nsstringIndex = attributedBody.indexOf(Buffer.from('NSString'), searchPos);
-      if (nsstringIndex === -1) break;
-
-      let pos = nsstringIndex + 8; // Skip "NSString"
-
-      while (pos < attributedBody.length - 10) {
-        const lengthByte = attributedBody[pos];
-
-        if (lengthByte > 0 && lengthByte <= 200 && pos + 1 + lengthByte < attributedBody.length) {
-          const potentialText = attributedBody.slice(pos + 1, pos + 1 + lengthByte).toString('utf8');
-
-          if (potentialText.length === lengthByte &&
-              /^[\w\s\.,!?\-\'\"]+$/.test(potentialText) &&
-              !potentialText.includes('\x00') &&
-              !isMetadata(potentialText)) {
-
-            // Calculate a score based on length and content quality
-            const printableRatio = potentialText.split('').filter(c =>
-              (c >= ' ' && c <= '~') || c === '\n' || c === '\r' || c === '\t'
-            ).length / potentialText.length;
-
-            const wordCount = potentialText.split(/\s+/).filter(w => w.length > 0).length;
-            const hasRealWords = wordCount > 0 && potentialText.length > 2;
-
-            // Penalize strings that look like identifiers (contain underscores)
-            const identifierPenalty = potentialText.includes('_') ? 0.5 : 1;
-
-            if (printableRatio >= 0.8 && hasRealWords) {
-              const score = (potentialText.length * 10 + wordCount * 5 + (printableRatio * 100)) * identifierPenalty;
-              candidates.push({ text: potentialText, score });
-            }
-          }
-        }
-
-        pos++;
-        if (pos > nsstringIndex + 50) break;
-      }
-
-      searchPos = nsstringIndex + 1;
+    // Find the '+' character which marks the start of the text section
+    const plusIndex = attributedBody.indexOf('+');
+    if (plusIndex === -1 || plusIndex >= attributedBody.length - 2) {
+      return null;
     }
 
-    // Also search globally for length-prefixed strings
-    for (let i = 0; i < attributedBody.length - 10; i++) {
-      const lengthByte = attributedBody[i];
-      if (lengthByte > 0 && lengthByte <= 200 && i + 1 + lengthByte < attributedBody.length) {
-        const potentialText = attributedBody.slice(i + 1, i + 1 + lengthByte).toString('utf8');
-
-        if (potentialText.length === lengthByte &&
-            /^[\w\s\.,!?\-\'\"]+$/.test(potentialText) &&
-            !potentialText.includes('\x00') &&
-            !isMetadata(potentialText) &&
-            potentialText.length > 1) { // Skip single characters
-
-          const printableRatio = potentialText.split('').filter(c =>
-            (c >= ' ' && c <= '~') || c === '\n' || c === '\r' || c === '\t'
-          ).length / potentialText.length;
-
-          const wordCount = potentialText.split(/\s+/).filter(w => w.length > 0).length;
-
-          // Penalize strings that look like identifiers
-          const identifierPenalty = potentialText.includes('_') ? 0.5 : 1;
-
-          if (printableRatio >= 0.9 && wordCount > 0) {
-            const score = (potentialText.length * 10 + wordCount * 5 + (printableRatio * 100)) * identifierPenalty;
-            candidates.push({ text: potentialText, score });
-          }
-        }
-      }
+    // The byte immediately after '+' is the length of the text
+    const textLength = attributedBody[plusIndex + 1];
+    if (textLength === 0 || plusIndex + 1 + textLength >= attributedBody.length) {
+      return null;
     }
 
-    // Return the highest-scoring candidate
-    if (candidates.length > 0) {
-      candidates.sort((a, b) => b.score - a.score);
-      return candidates[0].text;
+    // Extract exactly that many bytes as UTF-8 text
+    const textBytes = attributedBody.slice(plusIndex + 2, plusIndex + 2 + textLength);
+    const text = textBytes.toString('utf8');
+
+    // Basic validation: should have at least one letter and be reasonable length
+    if (text.length > 0 && text.length <= 1000 && /[a-zA-Z0-9]/.test(text)) {
+      return text.trim();
     }
 
     return null;
@@ -120,15 +48,10 @@ function extractTextFromAttributedBody(attributedBody: Buffer): string | null {
 }
 
 /**
- * Enhanced message with text extracted from database if needed
+ * Get the most current text for a message from the database
+ * Always queries the database since SDK may have stale/cached data
  */
-async function getMessageWithText(message: Message): Promise<Message> {
-  // If message already has text, return as-is
-  if (message.text && message.text.trim().length > 0) {
-    return message;
-  }
-
-  // Try to get text from database directly
+async function getMessageTextFromDB(messageId: string): Promise<string | null> {
   try {
     const db = new Database('/Users/ishan/Library/Messages/chat.db', { readonly: true });
 
@@ -136,29 +59,29 @@ async function getMessageWithText(message: Message): Promise<Message> {
       SELECT text, attributedBody
       FROM message
       WHERE ROWID = ?
-    `).get(message.id) as { text?: string; attributedBody?: Buffer } | undefined;
+    `).get(messageId) as { text?: string; attributedBody?: Buffer } | undefined;
 
     db.close();
 
     if (result) {
-      // Try text field first
+      // Try text field first (sometimes populated)
       if (result.text && result.text.trim().length > 0) {
-        return { ...message, text: result.text };
+        return result.text.trim();
       }
 
-      // Try attributedBody if available
+      // Try attributedBody parsing (always contains the data)
       if (result.attributedBody) {
         const extractedText = extractTextFromAttributedBody(result.attributedBody);
         if (extractedText) {
-          return { ...message, text: extractedText };
+          return extractedText;
         }
       }
     }
   } catch (error) {
-    console.error('[MessageHandler] Error querying database directly:', error);
+    console.error('[MessageHandler] Error querying database for text:', error);
   }
 
-  return message;
+  return null;
 }
 
 /**
@@ -166,14 +89,14 @@ async function getMessageWithText(message: Message): Promise<Message> {
  */
 export async function handleIncomingMessage(message: Message): Promise<string | null> {
   try {
-    // First, ensure we have the message text by querying database directly if needed
-    const messageWithText = await getMessageWithText(message);
+    // Always get the most current text from database (SDK may have stale data)
+    const messageText = await getMessageTextFromDB(message.id);
 
     if (config.debug) {
       console.log(`[MessageHandler] Processing message from ${message.sender}`);
       console.log(`[MessageHandler] Message details:`, {
-        originalText: message.text,
-        extractedText: messageWithText.text,
+        sdkText: message.text,
+        dbText: messageText,
         hasAttachments: message.attachments?.length > 0,
         attachmentCount: message.attachments?.length || 0,
         service: message.service,
@@ -182,8 +105,8 @@ export async function handleIncomingMessage(message: Message): Promise<string | 
       });
     }
 
-    // Use the enhanced message
-    message = messageWithText;
+    // Use text from database if available, otherwise use SDK text
+    const finalText = messageText || message.text;
 
     // Don't respond to group chats in Phase 1
     if (message.isGroupChat) {
@@ -194,7 +117,7 @@ export async function handleIncomingMessage(message: Message): Promise<string | 
     }
 
     // Handle messages with no text
-    if (!message.text || message.text.trim().length === 0) {
+    if (!finalText || finalText.trim().length === 0) {
       // Check if it's an attachment-only message
       const hasAttachments = message.attachments && message.attachments.length > 0;
       if (hasAttachments) {
@@ -205,7 +128,7 @@ export async function handleIncomingMessage(message: Message): Promise<string | 
         // For now, we'll skip it
         return null;
       }
-      
+
       if (config.debug) {
         console.log('[MessageHandler] Skipping empty message (no text, no attachments)');
       }
@@ -232,7 +155,7 @@ export async function handleIncomingMessage(message: Message): Promise<string | 
     }
 
     // Call the backend API
-    const response = await callBackend(message.text);
+    const response = await callBackend(finalText);
 
     if (config.debug) {
       console.log(`[MessageHandler] Backend response: ${response}`);
