@@ -32,7 +32,6 @@ class ChatRequest(BaseModel):
     stream: bool = True
     sync_mode: bool = False  # For iMessage: wait for response instead of background processing
     source: str = "web"  # Track message origin: "web" or "imessage"
-    sender_phone: Optional[str] = None  # Phone number of sender (for iMessage)
 
     def as_message_list(self) -> List[Dict[str, str]]:
         return [msg.as_dict() for msg in self.messages if msg.content.strip()]
